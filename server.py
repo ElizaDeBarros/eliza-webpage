@@ -165,6 +165,11 @@ def get_stats():
     conn = sqlite3.connect('visitor_data.db')
     cursor = conn.cursor()
     
+    # Check if table exists, if not create it
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='visit_counts'")
+    if not cursor.fetchone():
+        setup_database()
+    
     # Get daily stats
     cursor.execute('SELECT * FROM visit_counts ORDER BY date DESC')
     daily_stats = cursor.fetchall()
@@ -224,8 +229,7 @@ def get_stats():
     })
 
 if __name__ == "__main__":
-    with app.app_context():
-        setup_database()
+    setup_database()
     
     # app.run(debug=True, host='0.0.0.0', port=5000)
     # For production:
