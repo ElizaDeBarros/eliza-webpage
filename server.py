@@ -18,9 +18,9 @@ app.secret_key = os.urandom(24)  # Generate a random secret key for sessions
 #     ADMIN_PASSWORD = generate_password_hash(senha)
 # except ImportError:
 # Use environment variables instead
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME')
+ADMIN_USERNAME = os.environ.get('usuario')
 # Check if the password is already hashed
-ADMIN_PASSWORD = generate_password_hash(os.environ.get('ADMIN_PASSWORD', ''))
+ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
 
 # Database setup
 def setup_database():
