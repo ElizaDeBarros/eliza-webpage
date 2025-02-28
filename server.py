@@ -6,21 +6,21 @@ import uuid
 import os
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-from config import usuario, senha
+# from config import usuario, senha
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate a random secret key for sessions
 
 # Try to import from config file, otherwise use environment variables
-try:
-    from config import usuario, senha
-    ADMIN_USERNAME = usuario
-    ADMIN_PASSWORD = generate_password_hash(senha)
-except ImportError:
-    # Use environment variables instead
-    ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME')
-    # Check if the password is already hashed (which it shouldn't be in environment variables)
-    ADMIN_PASSWORD = generate_password_hash(os.environ.get('ADMIN_PASSWORD', ''))
+# try:
+#     from config import usuario, senha
+#     ADMIN_USERNAME = usuario
+#     ADMIN_PASSWORD = generate_password_hash(senha)
+# except ImportError:
+# Use environment variables instead
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME')
+# Check if the password is already hashed (which it shouldn't be in environment variables)
+ADMIN_PASSWORD = generate_password_hash(os.environ.get('ADMIN_PASSWORD', ''))
 
 # Database setup
 def setup_database():
