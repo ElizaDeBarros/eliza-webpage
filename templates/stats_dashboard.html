@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Visitor Statistics Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #f4f4f4;
+        }
+        header {
+            background-color: #3C8DAD;
+            color: white;
+            padding: 1rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 1rem;
+        }
+        .dashboard-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 1rem;
+            margin-bottom: 1rem;
+        }
+        .card {
+            background-color: white;
+            border-radius: 5px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+            padding: 1rem;
+        }
+        .stat-number {
+            font-size: 2rem;
+            font-weight: bold;
+            color: #3C8DAD;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 1rem;
+        }
+        th, td {
+            padding: 0.75rem;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        th {
+            background-color: #f2f2f2;
+        }
+        .logout-btn {
+            background-color: transparent;
+            border: 1px solid white;
+            color: white;
+            padding: 0.5rem 1rem;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .logout-btn:hover {
+            background-color: rgba(255, 255, 255, 0.1);
+        }
+        h2 {
+            color: #333;
+            margin-top: 2rem;
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Visitor Statistics Dashboard</h1>
+        <a href="/logout" class="logout-btn">Logout</a>
+    </header>
+    
+    <div class="container">
+        <div class="dashboard-grid">
+            <div class="card">
+                <div class="stat-label">Total Visits</div>
+                <div class="stat-number" id="total-visits">0</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Unique Visitors</div>
+                <div class="stat-number" id="unique-visitors">0</div>
+            </div>
+            <div class="card">
+                <div class="stat-label">Today's Visits</div>
+                <div class="stat-number" id="today-visits">0</div>
+            </div>
+        </div>
+        
+        <h2>Daily Statistics</h2>
+        <div class="card">
+            <table id="daily-stats">
+                <thead>
+                    <tr>
+                        <th>Date</th>
+                        <th>Visits</th>
+                        <th>Unique Visitors</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Will be filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <h2>Page Views</h2>
+        <div class="card">
+            <table id="page-stats">
+                <thead>
+                    <tr>
+                        <th>Page</th>
+                        <th>Views</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Will be filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+        
+        <h2>Top Referrers</h2>
+        <div class="card">
+            <table id="referrer-stats">
+                <thead>
+                    <tr>
+                        <th>Referrer</th>
+                        <th>Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Will be filled by JavaScript -->
+                </tbody>
+            </table>
+        </div>
+    </div>
+    
+    <script>
+        // Fetch and display stats when page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            fetchStats();
+        });
+        
+        function fetchStats() {
+            fetch('/stats/api')
+                .then(response => {
+                    if (!response.ok) {
+                        throw new Error('Network response was not ok');
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    // Update summary stats
+                    document.getElementById('total-visits').textContent = data.total_visits;
+                    document.getElementById('unique-visitors').textContent = data.total_unique_visitors;
+                    
+                    // Today's visits
+                    const today = new Date().toISOString().split('T')[0];
+                    const todayStats = data.daily_stats.find(stat => stat.date === today);
+                    document.getElementById('today-visits').textContent = todayStats ? todayStats.total_visits : 0;
+                    
+                    // Fill daily stats table
+                    const dailyStatsTable = document.getElementById('daily-stats').getElementsByTagName('tbody')[0];
+                    dailyStatsTable.innerHTML = '';
+                    data.daily_stats.forEach(stat => {
+                        const row = dailyStatsTable.insertRow();
+                        row.insertCell(0).textContent = stat.date;
+                        row.insertCell(1).textContent = stat.total_visits;
+                        row.insertCell(2).textContent = stat.unique_visitors;
+                    });
+                    
+                    // Fill page stats table
+                    const pageStatsTable = document.getElementById('page-stats').getElementsByTagName('tbody')[0];
+                    pageStatsTable.innerHTML = '';
+                    data.page_stats.forEach(stat => {
+                        const row = pageStatsTable.insertRow();
+                        row.insertCell(0).textContent = stat.page;
+                        row.insertCell(1).textContent = stat.views;
+                    });
+                    
+                    // Fill referrer stats table
+                    const referrerStatsTable = document.getElementById('referrer-stats').getElementsByTagName('tbody')[0];
+                    referrerStatsTable.innerHTML = '';
+                    data.referrer_stats.forEach(stat => {
+                        const row = referrerStatsTable.insertRow();
+                        row.insertCell(0).textContent = stat.referrer;
+                        row.insertCell(1).textContent = stat.count;
+                    });
+                })
+                .catch(error => {
+                    console.error('Error fetching stats:', error);
+                });
+        }
+    </script>
+</body>
+</html>
