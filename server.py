@@ -11,6 +11,45 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate a random secret key for sessions
 
+# Add this right after your app definition
+def init_app():
+    with app.app_context():
+        # Ensure the database exists and tables are created
+        conn = sqlite3.connect('visitor_data.db')
+        cursor = conn.cursor()
+        
+        # Check and create visitors table if it doesn't exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='visitors'")
+        if not cursor.fetchone():
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS visitors (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                visitor_id TEXT,
+                ip_address TEXT,
+                user_agent TEXT,
+                page_url TEXT,
+                timestamp TEXT,
+                referrer TEXT
+            )
+            ''')
+            
+        # Check and create visit_counts table if it doesn't exist
+        cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='visit_counts'")
+        if not cursor.fetchone():
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS visit_counts (
+                date TEXT PRIMARY KEY,
+                total_visits INTEGER,
+                unique_visitors INTEGER
+            )
+            ''')
+            
+        conn.commit()
+        conn.close()
+        app.logger.info("Database initialized successfully")
+
+# Call the initialization function
+init_app()
 # Try to import from config file, otherwise use environment variables
 # try:
 #     from config import usuario, senha
