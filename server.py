@@ -40,9 +40,21 @@ def init_app():
             CREATE TABLE IF NOT EXISTS visit_counts (
                 date TEXT PRIMARY KEY,
                 total_visits INTEGER,
-                unique_visitors INTEGER
+                unique_visitors INTEGER,
+                cumulative_visits INTEGER,
+                cumulative_unique_visitors INTEGER
             )
             ''')
+            
+        # Add cumulative columns to visit_counts table if they don't exist
+        cursor.execute("PRAGMA table_info(visit_counts)")
+        columns = [info[1] for info in cursor.fetchall()]
+        
+        if 'cumulative_visits' not in columns:
+            cursor.execute("ALTER TABLE visit_counts ADD COLUMN cumulative_visits INTEGER DEFAULT 0")
+            
+        if 'cumulative_unique_visitors' not in columns:
+            cursor.execute("ALTER TABLE visit_counts ADD COLUMN cumulative_unique_visitors INTEGER DEFAULT 0")
             
         conn.commit()
         conn.close()
@@ -50,6 +62,7 @@ def init_app():
 
 # Call the initialization function
 init_app()
+
 # Try to import from config file, otherwise use environment variables
 # try:
 #     from config import usuario, senha
@@ -76,13 +89,29 @@ def setup_database():
         referrer TEXT
     )
     ''')
+    
+    # Modified to include cumulative counts
     cursor.execute('''
     CREATE TABLE IF NOT EXISTS visit_counts (
         date TEXT PRIMARY KEY,
         total_visits INTEGER,
+        unique_visitors INTEGER,
+        cumulative_visits INTEGER,
+        cumulative_unique_visitors INTEGER
+    )
+    ''')
+    
+    # Create running_totals table for tracking overall stats
+    cursor.execute('''
+    CREATE TABLE IF NOT EXISTS running_totals (
+        id INTEGER PRIMARY KEY,
+        total_visits INTEGER,
         unique_visitors INTEGER
     )
     ''')
+    
+    # Initialize running totals if not exists
+    cursor.execute('INSERT OR IGNORE INTO running_totals (id, total_visits, unique_visitors) VALUES (1, 0, 0)')
     conn.commit()
     conn.close()
 
@@ -132,28 +161,58 @@ def track_visitor():
     VALUES (?, ?, ?, ?, ?, ?)
     ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
     
-    # Update daily counts
+    # Get current running totals
+    cursor.execute('SELECT total_visits, unique_visitors FROM running_totals WHERE id = 1')
+    running_totals = cursor.fetchone()
+    
+    if not running_totals:
+        # Initialize if not exists
+        cursor.execute('INSERT INTO running_totals (id, total_visits, unique_visitors) VALUES (1, 1, 1)')
+        cumulative_visits = 1
+        
+        # This is a new visitor by default
+        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
+        cumulative_unique = cursor.fetchone()[0]
+    else:
+        # Update running totals
+        cumulative_visits = running_totals[0] + 1
+        
+        # Count all unique visitors
+        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
+        cumulative_unique = cursor.fetchone()[0]
+        
+        # Update running totals
+        cursor.execute('UPDATE running_totals SET total_visits = ?, unique_visitors = ? WHERE id = 1', 
+                      (cumulative_visits, cumulative_unique))
+    
+    # Update daily counts with cumulative data
     cursor.execute('SELECT * FROM visit_counts WHERE date = ?', (current_date,))
     day_record = cursor.fetchone()
     
-    if day_record:
-        # Update existing record
-        cursor.execute('UPDATE visit_counts SET total_visits = total_visits + 1 WHERE date = ?', 
-                      (current_date,))
-    else:
-        # Create new record for the day
-        cursor.execute('INSERT INTO visit_counts (date, total_visits, unique_visitors) VALUES (?, 1, 0)', 
-                      (current_date,))
-    
-    # Update unique visitors count
+    # Count daily unique visitors
     cursor.execute('''
     SELECT COUNT(DISTINCT visitor_id) FROM visitors 
     WHERE timestamp LIKE ?
     ''', (f'{current_date}%',))
+    daily_unique = cursor.fetchone()[0]
     
-    unique_count = cursor.fetchone()[0]
-    cursor.execute('UPDATE visit_counts SET unique_visitors = ? WHERE date = ?', 
-                  (unique_count, current_date))
+    if day_record:
+        # Update existing record with incremented daily visits and current cumulative counts
+        cursor.execute('''
+        UPDATE visit_counts 
+        SET total_visits = total_visits + 1, 
+            unique_visitors = ?, 
+            cumulative_visits = ?, 
+            cumulative_unique_visitors = ? 
+        WHERE date = ?
+        ''', (daily_unique, cumulative_visits, cumulative_unique, current_date))
+    else:
+        # Create new record for the day, including cumulative totals
+        cursor.execute('''
+        INSERT INTO visit_counts 
+        (date, total_visits, unique_visitors, cumulative_visits, cumulative_unique_visitors) 
+        VALUES (?, 1, ?, ?, ?)
+        ''', (current_date, daily_unique, cumulative_visits, cumulative_unique))
     
     conn.commit()
     conn.close()
@@ -209,17 +268,24 @@ def get_stats():
     if not cursor.fetchone():
         setup_database()
     
-    # Get daily stats
+    # Get daily stats with cumulative counts
     cursor.execute('SELECT * FROM visit_counts ORDER BY date DESC')
     daily_stats = cursor.fetchall()
     
-    # Get total visitors
-    cursor.execute('SELECT COUNT(*) FROM visitors')
-    total_visits = cursor.fetchone()[0]
+    # Get total and unique visitors (use running_totals for more reliability)
+    cursor.execute('SELECT total_visits, unique_visitors FROM running_totals WHERE id = 1')
+    running_totals = cursor.fetchone()
     
-    # Get unique visitors
-    cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
-    total_unique = cursor.fetchone()[0]
+    if not running_totals:
+        # If running_totals not available, calculate from visitors table
+        cursor.execute('SELECT COUNT(*) FROM visitors')
+        total_visits = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
+        total_unique = cursor.fetchone()[0]
+    else:
+        total_visits = running_totals[0]
+        total_unique = running_totals[1]
     
     # Get page views breakdown
     cursor.execute('''
@@ -243,29 +309,59 @@ def get_stats():
     
     conn.close()
     
-    return jsonify({
-        'total_visits': total_visits,
-        'total_unique_visitors': total_unique,
-        'daily_stats': [
-            {
-                'date': row[0],
-                'total_visits': row[1],
-                'unique_visitors': row[2]
-            } for row in daily_stats
-        ],
-        'page_stats': [
-            {
-                'page': row[0],
-                'views': row[1]
-            } for row in page_stats
-        ],
-        'referrer_stats': [
-            {
-                'referrer': row[0],
-                'count': row[1]
-            } for row in referrer_stats
-        ]
-    })
+    # Determine structure of daily_stats based on the columns present
+    if daily_stats and len(daily_stats[0]) >= 5:
+        # New format with cumulative stats
+        return jsonify({
+            'total_visits': total_visits,
+            'total_unique_visitors': total_unique,
+            'daily_stats': [
+                {
+                    'date': row[0],
+                    'total_visits': row[1],
+                    'unique_visitors': row[2],
+                    'cumulative_visits': row[3],
+                    'cumulative_unique_visitors': row[4]
+                } for row in daily_stats
+            ],
+            'page_stats': [
+                {
+                    'page': row[0],
+                    'views': row[1]
+                } for row in page_stats
+            ],
+            'referrer_stats': [
+                {
+                    'referrer': row[0],
+                    'count': row[1]
+                } for row in referrer_stats
+            ]
+        })
+    else:
+        # Old format for backward compatibility
+        return jsonify({
+            'total_visits': total_visits,
+            'total_unique_visitors': total_unique,
+            'daily_stats': [
+                {
+                    'date': row[0],
+                    'total_visits': row[1],
+                    'unique_visitors': row[2]
+                } for row in daily_stats
+            ],
+            'page_stats': [
+                {
+                    'page': row[0],
+                    'views': row[1]
+                } for row in page_stats
+            ],
+            'referrer_stats': [
+                {
+                    'referrer': row[0],
+                    'count': row[1]
+                } for row in referrer_stats
+            ]
+        })
 
 if __name__ == "__main__":
     setup_database()
