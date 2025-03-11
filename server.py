@@ -95,18 +95,12 @@ def track_visitor():
     VALUES (?, ?, ?, ?, ?, ?)
     ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
     
-    # Get previous totals
+    # Get the latest cumulative totals
     cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
     previous_totals = cursor.fetchone()
-    previous_total_visits = previous_totals[0] if previous_totals else 0
-    previous_total_unique = previous_totals[1] if previous_totals else 0
-    
-    # Count all visits and unique visitors from visitors table
-    cursor.execute('SELECT COUNT(*) FROM visitors')
-    total_visits = cursor.fetchone()[0]
-    
+    total_visits = previous_totals[0] + 1 if previous_totals else 1  # Increment total visits
     cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
-    total_unique = cursor.fetchone()[0]
+    total_unique = cursor.fetchone()[0]  # Recalculate total unique visitors
     
     # Count daily visits and unique visitors
     cursor.execute('''
@@ -121,7 +115,7 @@ def track_visitor():
     ''', (f'{current_date}%',))
     daily_unique = cursor.fetchone()[0]
     
-    # Update or insert the daily record with both daily and total counts
+    # Update or insert the daily record with both daily and cumulative counts
     cursor.execute('SELECT * FROM visit_counts WHERE date = ?', (current_date,))
     if cursor.fetchone():
         cursor.execute('''
