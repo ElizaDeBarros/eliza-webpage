@@ -6,7 +6,6 @@ import uuid
 import os
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
-# from config import usuario, senha
 
 app = Flask(__name__)
 app.secret_key = os.urandom(24)  # Generate a random secret key for sessions
@@ -46,15 +45,8 @@ def setup_database():
 # Initialize the database at startup
 setup_database()
 
-# Try to import from config file, otherwise use environment variables
-# try:
-#     from config import usuario, senha
-#     ADMIN_USERNAME = usuario
-#     ADMIN_PASSWORD = generate_password_hash(senha)
-# except ImportError:
-# Use environment variables instead
+# Admin credentials
 ADMIN_USERNAME = os.environ.get('usuario')
-# Check if the password is already hashed
 ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
 
 # Authentication decorator
@@ -103,7 +95,13 @@ def track_visitor():
     VALUES (?, ?, ?, ?, ?, ?)
     ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
     
-    # Count all visits and unique visitors
+    # Get previous totals
+    cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
+    previous_totals = cursor.fetchone()
+    previous_total_visits = previous_totals[0] if previous_totals else 0
+    previous_total_unique = previous_totals[1] if previous_totals else 0
+    
+    # Count all visits and unique visitors from visitors table
     cursor.execute('SELECT COUNT(*) FROM visitors')
     total_visits = cursor.fetchone()[0]
     
@@ -157,8 +155,6 @@ def login():
     if request.method == 'POST':
         username = request.form.get('username')
         password = request.form.get('password')
-        
-        print(f"Login attempt: {username}")
         
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD, password):
             session['logged_in'] = True
@@ -258,7 +254,4 @@ def get_stats():
 
 if __name__ == "__main__":
     setup_database()
-    
-    # app.run(debug=True, host='0.0.0.0', port=5000)
-    # For production:
     app.run(debug=False, host='0.0.0.0', port=8080)
