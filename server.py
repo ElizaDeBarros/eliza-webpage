@@ -53,8 +53,9 @@ def setup_database():
 setup_database()
 
 # Admin credentials from environment variables with defaults
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD = generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'password'))
+from config import usuario, senha
+ADMIN_USERNAME = os.environ.get('usuario')
+ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
 
 # Authentication decorator
 def login_required(f):
