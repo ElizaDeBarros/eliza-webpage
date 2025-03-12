@@ -53,7 +53,7 @@ def setup_database():
 setup_database()
 
 # Admin credentials from environment variables with defaults
-from config import usuario, senha
+
 ADMIN_USERNAME = os.environ.get('usuario')
 ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
 
