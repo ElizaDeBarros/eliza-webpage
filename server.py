@@ -39,8 +39,7 @@ def setup_database():
         )
         ''')
         
-        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) 
-                       VALUES (?, 0, 0, 0, 0)', (datetime.now().strftime('%Y-%m-%d'),))
+        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) VALUES (?, 0, 0, 0, 0)', (datetime.now().strftime('%Y-%m-%d'),))
         
         conn.commit()
     except sqlite3.Error as e:
