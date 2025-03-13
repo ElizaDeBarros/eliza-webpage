@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
-from datetime import datetime  # Changed from 'date' to 'datetime'
+from datetime import datetime
 import sqlite3
 import hashlib
 import uuid
@@ -39,8 +39,8 @@ def setup_database():
         )
         ''')
         
-        # Fixed line - using datetime.now() instead of date.today()
-        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) VALUES (?, 0, 0, 0, 0)', (datetime.now().strftime('%Y-%m-%d'),))
+        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) 
+                       VALUES (?, 0, 0, 0, 0)', (datetime.now().strftime('%Y-%m-%d'),))
         
         conn.commit()
     except sqlite3.Error as e:
@@ -63,8 +63,10 @@ def login_required(f):
 
 @app.route("/")
 def home():
-    today = datetime.now()  # Updated to use datetime
-    return render_template("index.html", current_year=today.year)
+    today = datetime.now()
+    # Add tracking pixel to home page
+    tracking_url = url_for('track_visitor', page='/', _external=True)
+    return render_template("index.html", current_year=today.year, tracking_url=tracking_url)
 
 def generate_visitor_id(ip, user_agent):
     data = f"{ip}_{user_agent}_{str(uuid.uuid4())}"
@@ -86,40 +88,48 @@ def track_visitor():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
+        # Log the visit
+        print(f"Tracking visit: IP={ip_address}, Page={page_url}, VisitorID={visitor_id}")
+        
         cursor.execute('''
         INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer)
         VALUES (?, ?, ?, ?, ?, ?)
         ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
         
+        # Check if visitor is new today
         cursor.execute('SELECT COUNT(*) FROM visitors WHERE visitor_id = ? AND timestamp LIKE ?', 
                       (visitor_id, f'{current_date}%'))
-        is_new_unique_today = cursor.fetchone()[0] == 0
+        existing_visits = cursor.fetchone()[0]
+        is_new_unique_today = existing_visits == 1  # First visit today
         
-        cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
-        previous = cursor.fetchone()
-        total_visits = (previous['total_visits'] if previous else 0) + 1
+        # Get current counts
+        cursor.execute('SELECT * FROM visit_counts WHERE date = ?', (current_date,))
+        current = cursor.fetchone()
         
-        cursor.execute('''
-        INSERT INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique)
-        VALUES (?, 1, ?, ?, ?)
-        ON CONFLICT(date) DO UPDATE SET
-            daily_visits = daily_visits + 1,
-            daily_unique = daily_unique + ?,
-            total_visits = ?,
-            total_unique = total_unique + ?
-        ''', (current_date, 
-              1 if is_new_unique_today else 0,
-              total_visits,
-              total_visits,
-              1 if is_new_unique_today else 0))
+        if current:
+            daily_visits = current['daily_visits'] + 1
+            daily_unique = current['daily_unique'] + (1 if is_new_unique_today else 0)
+            total_visits = current['total_visits'] + 1
+            total_unique = current['total_unique']
+        else:
+            daily_visits = 1
+            daily_unique = 1
+            total_visits = 1
+            total_unique = 1
         
+        # Update total unique
         cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
         total_unique = cursor.fetchone()[0]
         
-        cursor.execute('UPDATE visit_counts SET total_unique = ? WHERE date = ?', 
-                      (total_unique, current_date))
+        # Update counts
+        cursor.execute('''
+        INSERT OR REPLACE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique)
+        VALUES (?, ?, ?, ?, ?)
+        ''', (current_date, daily_visits, daily_unique, total_visits, total_unique))
         
         conn.commit()
+        
+        print(f"Updated counts: daily={daily_visits}, unique={daily_unique}, total={total_visits}")
         
         return app.response_class(
             response=b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b',
@@ -192,4 +202,4 @@ def get_stats():
 
 if __name__ == "__main__":
     setup_database()
-    app.run(debug=False, host='0.0.0.0', port=8080)
+    app.run(debug=True, host='0.0.0.0', port=8080)  # Changed to debug=True for better error reporting
