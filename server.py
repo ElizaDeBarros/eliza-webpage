@@ -8,18 +8,15 @@ from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
-app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))  # Use env var or generate random key
+app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 
-# Database path (ensure it's in a writable location)
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'visitor_data.db')
 
-# Database setup with error handling
 def setup_database():
     try:
         conn = sqlite3.connect(DB_PATH)
         cursor = conn.cursor()
         
-        # Create visitors table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visitors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -32,7 +29,6 @@ def setup_database():
         )
         ''')
         
-        # Create visit_counts table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visit_counts (
             date TEXT PRIMARY KEY,
@@ -43,21 +39,21 @@ def setup_database():
         )
         ''')
         
+        # Ensure there's a starting row if none exists
+        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) 
+                       VALUES (?, 0, 0, 0, 0)', (date.today().strftime('%Y-%m-%d'),))
+        
         conn.commit()
     except sqlite3.Error as e:
         print(f"Database setup error: {e}")
     finally:
         conn.close()
 
-# Initialize database
 setup_database()
-
-# Admin credentials from environment variables with defaults
 
 ADMIN_USERNAME = os.environ.get('usuario')
 ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
 
-# Authentication decorator
 def login_required(f):
     @wraps(f)
     def decorated_function(*args, **kwargs):
@@ -97,34 +93,40 @@ def track_visitor():
         VALUES (?, ?, ?, ?, ?, ?)
         ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
         
-        # Update counts
+        # Check if this is a new unique visitor today
+        cursor.execute('SELECT COUNT(*) FROM visitors WHERE visitor_id = ? AND timestamp LIKE ?', 
+                      (visitor_id, f'{current_date}%'))
+        is_new_unique_today = cursor.fetchone()[0] == 0
+        
+        # Get previous totals
         cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
         previous = cursor.fetchone()
         total_visits = (previous['total_visits'] if previous else 0) + 1
         
+        # Update today's counts
+        cursor.execute('''
+        INSERT INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique)
+        VALUES (?, 1, ?, ?, ?)
+        ON CONFLICT(date) DO UPDATE SET
+            daily_visits = daily_visits + 1,
+            daily_unique = daily_unique + ?,
+            total_visits = ?,
+            total_unique = total_unique + ?
+        ''', (current_date, 
+              1 if is_new_unique_today else 0,
+              total_visits,
+              total_visits,
+              1 if is_new_unique_today else 0))
+        
+        # Update total unique visitors across all time
         cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
         total_unique = cursor.fetchone()[0]
         
-        cursor.execute('SELECT COUNT(*) FROM visitors WHERE timestamp LIKE ?', (f'{current_date}%',))
-        daily_visits = cursor.fetchone()[0]
-        
-        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors WHERE timestamp LIKE ?', (f'{current_date}%',))
-        daily_unique = cursor.fetchone()[0]
-        
-        # Upsert visit counts
-        cursor.execute('''
-        INSERT INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique)
-        VALUES (?, ?, ?, ?, ?)
-        ON CONFLICT(date) DO UPDATE SET
-            daily_visits = excluded.daily_visits,
-            daily_unique = excluded.daily_unique,
-            total_visits = excluded.total_visits,
-            total_unique = excluded.total_unique
-        ''', (current_date, daily_visits, daily_unique, total_visits, total_unique))
+        cursor.execute('UPDATE visit_counts SET total_unique = ? WHERE date = ?', 
+                      (total_unique, current_date))
         
         conn.commit()
         
-        # Return 1x1 pixel GIF
         return app.response_class(
             response=b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b',
             status=200,
@@ -159,41 +161,4 @@ def logout():
 @app.route('/stats-dashboard')
 @login_required
 def stats_dashboard():
-    return render_template('stats_dashboard.html')
-
-@app.route('/stats/api', methods=['GET'])
-@login_required
-def get_stats():
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        cursor = conn.cursor()
-        
-        cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
-        totals = cursor.fetchone() or {'total_visits': 0, 'total_unique': 0}
-        
-        cursor.execute('SELECT date, daily_visits, daily_unique, total_visits, total_unique FROM visit_counts ORDER BY date DESC')
-        daily_stats = cursor.fetchall()
-        
-        cursor.execute('SELECT page_url, COUNT(*) as views FROM visitors GROUP BY page_url ORDER BY views DESC')
-        page_stats = cursor.fetchall()
-        
-        cursor.execute('SELECT referrer, COUNT(*) as count FROM visitors WHERE referrer != "" GROUP BY referrer ORDER BY count DESC LIMIT 10')
-        referrer_stats = cursor.fetchall()
-        
-        conn.close()
-        
-        return jsonify({
-            'total_visits': totals['total_visits'],
-            'total_unique_visitors': totals['total_unique'],
-            'daily_stats': [dict(row) for row in daily_stats],
-            'page_stats': [{'page': row['page_url'], 'views': row['views']} for row in page_stats],
-            'referrer_stats': [{'referrer': row['referrer'], 'count': row['count']} for row in referrer_stats]
-        })
-    except sqlite3.Error as e:
-        print(f"Stats error: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
-
-if __name__ == "__main__":
-    setup_database()
-    app.run(debug=False, host='0.0.0.0', port=8080)
+    return render_template
