@@ -1,5 +1,5 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for, flash
-from datetime import date, datetime
+from datetime import datetime  # Changed from 'date' to 'datetime'
 import sqlite3
 import hashlib
 import uuid
@@ -39,9 +39,8 @@ def setup_database():
         )
         ''')
         
-        # Ensure there's a starting row if none exists
-        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) 
-                       VALUES (?, 0, 0, 0, 0)', (date.today().strftime('%Y-%m-%d'),))
+        # Fixed line - using datetime.now() instead of date.today()
+        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) VALUES (?, 0, 0, 0, 0)', (datetime.now().strftime('%Y-%m-%d'),))
         
         conn.commit()
     except sqlite3.Error as e:
@@ -64,7 +63,7 @@ def login_required(f):
 
 @app.route("/")
 def home():
-    today = date.today()
+    today = datetime.now()  # Updated to use datetime
     return render_template("index.html", current_year=today.year)
 
 def generate_visitor_id(ip, user_agent):
@@ -87,23 +86,19 @@ def track_visitor():
         conn.row_factory = sqlite3.Row
         cursor = conn.cursor()
         
-        # Insert visitor data
         cursor.execute('''
         INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer)
         VALUES (?, ?, ?, ?, ?, ?)
         ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
         
-        # Check if this is a new unique visitor today
         cursor.execute('SELECT COUNT(*) FROM visitors WHERE visitor_id = ? AND timestamp LIKE ?', 
                       (visitor_id, f'{current_date}%'))
         is_new_unique_today = cursor.fetchone()[0] == 0
         
-        # Get previous totals
         cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
         previous = cursor.fetchone()
         total_visits = (previous['total_visits'] if previous else 0) + 1
         
-        # Update today's counts
         cursor.execute('''
         INSERT INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique)
         VALUES (?, 1, ?, ?, ?)
@@ -118,7 +113,6 @@ def track_visitor():
               total_visits,
               1 if is_new_unique_today else 0))
         
-        # Update total unique visitors across all time
         cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
         total_unique = cursor.fetchone()[0]
         
