@@ -10,17 +10,30 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'visitor_data.db')
+# Use environment variable for DB path or fallback to persistent location
+DB_PATH = os.environ.get('DATABASE_URL', '/data/visitor_data.db')
+
+def get_db_connection():
+    """Create a database connection with proper configuration"""
+    conn = sqlite3.connect(DB_PATH, timeout=10)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 def setup_database():
+    """Initialize database with error handling and directory creation"""
     try:
-        conn = sqlite3.connect(DB_PATH)
+        # Ensure directory exists if using local file
+        if not DB_PATH.startswith('sqlite:///'):
+            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+            
+        conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Create tables with improved structure
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visitors (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            visitor_id TEXT,
+            visitor_id TEXT NOT NULL,
             ip_address TEXT,
             user_agent TEXT,
             page_url TEXT,
@@ -39,18 +52,29 @@ def setup_database():
         )
         ''')
         
-        cursor.execute('INSERT OR IGNORE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique) VALUES (?, 0, 0, 0, 0)', (datetime.now().strftime('%Y-%m-%d'),))
+        # Initialize today's counts if not exists
+        today = datetime.now().strftime('%Y-%m-%d')
+        cursor.execute('''
+        INSERT OR IGNORE INTO visit_counts 
+        (date, daily_visits, daily_unique, total_visits, total_unique) 
+        VALUES (?, 0, 0, 0, 0)
+        ''', (today,))
         
         conn.commit()
     except sqlite3.Error as e:
         print(f"Database setup error: {e}")
+        raise
     finally:
         conn.close()
 
-setup_database()
+# Initialize database on startup
+try:
+    setup_database()
+except Exception as e:
+    print(f"Failed to initialize database: {e}")
 
-ADMIN_USERNAME = os.environ.get('usuario')
-ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
+ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
+ADMIN_PASSWORD = generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'password'))
 
 def login_required(f):
     @wraps(f)
@@ -63,7 +87,6 @@ def login_required(f):
 @app.route("/")
 def home():
     today = datetime.now()
-    # Add tracking pixel to home page
     tracking_url = url_for('track_visitor', page='/', _external=True)
     return render_template("index.html", current_year=today.year, tracking_url=tracking_url)
 
@@ -73,8 +96,9 @@ def generate_visitor_id(ip, user_agent):
 
 @app.route('/track', methods=['GET'])
 def track_visitor():
+    conn = None
     try:
-        ip_address = request.remote_addr
+        ip_address = request.remote_addr or 'unknown'
         user_agent = request.headers.get('User-Agent', '')
         page_url = request.args.get('page', 'unknown')
         referrer = request.headers.get('Referer', '')
@@ -83,13 +107,10 @@ def track_visitor():
         current_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
         current_date = datetime.now().strftime('%Y-%m-%d')
         
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Log the visit
-        print(f"Tracking visit: IP={ip_address}, Page={page_url}, VisitorID={visitor_id}")
-        
+        # Log visit
         cursor.execute('''
         INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -99,9 +120,9 @@ def track_visitor():
         cursor.execute('SELECT COUNT(*) FROM visitors WHERE visitor_id = ? AND timestamp LIKE ?', 
                       (visitor_id, f'{current_date}%'))
         existing_visits = cursor.fetchone()[0]
-        is_new_unique_today = existing_visits == 1  # First visit today
+        is_new_unique_today = existing_visits == 1
         
-        # Get current counts
+        # Get or initialize current counts
         cursor.execute('SELECT * FROM visit_counts WHERE date = ?', (current_date,))
         current = cursor.fetchone()
         
@@ -116,20 +137,20 @@ def track_visitor():
             total_visits = 1
             total_unique = 1
         
-        # Update total unique
+        # Update total unique count
         cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
         total_unique = cursor.fetchone()[0]
         
         # Update counts
         cursor.execute('''
-        INSERT OR REPLACE INTO visit_counts (date, daily_visits, daily_unique, total_visits, total_unique)
+        INSERT OR REPLACE INTO visit_counts 
+        (date, daily_visits, daily_unique, total_visits, total_unique)
         VALUES (?, ?, ?, ?, ?)
         ''', (current_date, daily_visits, daily_unique, total_visits, total_unique))
         
         conn.commit()
         
-        print(f"Updated counts: daily={daily_visits}, unique={daily_unique}, total={total_visits}")
-        
+        # Return 1x1 transparent GIF
         return app.response_class(
             response=b'\x47\x49\x46\x38\x39\x61\x01\x00\x01\x00\x80\x00\x00\xff\xff\xff\x00\x00\x00\x21\xf9\x04\x01\x00\x00\x00\x00\x2c\x00\x00\x00\x00\x01\x00\x01\x00\x00\x02\x02\x44\x01\x00\x3b',
             status=200,
@@ -137,9 +158,10 @@ def track_visitor():
         )
     except sqlite3.Error as e:
         print(f"Tracking error: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': 'Database error'}), 500
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
@@ -169,9 +191,9 @@ def stats_dashboard():
 @app.route('/stats/api', methods=['GET'])
 @login_required
 def get_stats():
+    conn = None
     try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
+        conn = get_db_connection()
         cursor = conn.cursor()
         
         cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
@@ -186,8 +208,6 @@ def get_stats():
         cursor.execute('SELECT referrer, COUNT(*) as count FROM visitors WHERE referrer != "" GROUP BY referrer ORDER BY count DESC LIMIT 10')
         referrer_stats = cursor.fetchall()
         
-        conn.close()
-        
         return jsonify({
             'total_visits': totals['total_visits'],
             'total_unique_visitors': totals['total_unique'],
@@ -197,8 +217,10 @@ def get_stats():
         })
     except sqlite3.Error as e:
         print(f"Stats error: {e}")
-        return jsonify({'error': 'Internal server error'}), 500
+        return jsonify({'error': 'Database error'}), 500
+    finally:
+        if conn:
+            conn.close()
 
 if __name__ == "__main__":
-    setup_database()
-    app.run(debug=True, host='0.0.0.0', port=8080)  # Changed to debug=True for better error reporting
+    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
