@@ -29,6 +29,11 @@ def setup_database():
         conn = get_db_connection()
         cursor = conn.cursor()
         
+        # Check SQLite version
+        # conn = sqlite3.connect(DB_PATH)
+        # print(sqlite3.sqlite_version)  # Prints the SQLite version, e.g., "3.42.0"
+        # conn.close()
+        
         # Create tables with improved structure
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visitors (
@@ -221,4 +226,4 @@ def get_stats():
             conn.close()
 
 if __name__ == "__main__":
-    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    app.run(debug=True, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
