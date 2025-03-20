@@ -11,14 +11,18 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 
-# Use environment variable for DB path or fallback to a temporary directory
-DB_DIR = os.environ.get('DATABASE_DIR', tempfile.gettempdir())  # Use temp dir if not specified
+# Use Render's persistent storage location or fallback to a temp directory
+# Render provides a /var/data directory for persistent storage on the free tier
+PERSISTENT_STORAGE = '/var/data'
+DB_DIR = PERSISTENT_STORAGE if os.path.exists(PERSISTENT_STORAGE) else os.environ.get('DATABASE_DIR', tempfile.gettempdir())
 DB_PATH = os.environ.get('DATABASE_URL', os.path.join(DB_DIR, 'visitor_data.db'))
 
 def get_db_connection():
     """Create a database connection with proper configuration"""
     try:
         print(f"Attempting to connect to database at: {DB_PATH}")
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         conn = sqlite3.connect(DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
         return conn
@@ -73,7 +77,8 @@ def setup_database():
         print(f"Database setup error: {e}")
         raise
     finally:
-        conn.close()
+        if conn:
+            conn.close()
 
 # Initialize database on startup
 try:
@@ -81,8 +86,14 @@ try:
 except Exception as e:
     print(f"Failed to initialize database: {e}")
 
-ADMIN_USERNAME = os.environ.get('usuario')
-ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
+# Use environment variables for authentication with fallbacks
+ADMIN_USERNAME = os.environ.get('usuario', 'admin')
+# Only generate hash if password not already hashed
+password_env = os.environ.get('senha', 'password')
+if password_env.startswith('pbkdf2:sha256:'):
+    ADMIN_PASSWORD = password_env
+else:
+    ADMIN_PASSWORD = generate_password_hash(password_env)
 
 def login_required(f):
     @wraps(f)
@@ -106,7 +117,7 @@ def generate_visitor_id(ip, user_agent):
 def track_visitor():
     conn = None
     try:
-        ip_address = request.remote_addr or 'unknown'
+        ip_address = request.headers.get('X-Forwarded-For', request.remote_addr) or 'unknown'
         user_agent = request.headers.get('User-Agent', '')
         page_url = request.args.get('page', 'unknown')
         referrer = request.headers.get('Referer', '')
@@ -181,6 +192,10 @@ def login():
         username = request.form.get('username')
         password = request.form.get('password')
         
+        # Debug login information (remove in production)
+        print(f"Login attempt: {username}")
+        print(f"Expected username: {ADMIN_USERNAME}")
+        
         if username == ADMIN_USERNAME and check_password_hash(ADMIN_PASSWORD, password):
             session['logged_in'] = True
             session['username'] = username
@@ -234,5 +249,15 @@ def get_stats():
         if conn:
             conn.close()
 
+# Add a health check endpoint for Render
+@app.route('/health')
+def health_check():
+    return jsonify({'status': 'ok'})
+
 if __name__ == "__main__":
-    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+    port = int(os.environ.get('PORT', 8080))
+    # Print important config values on startup
+    print(f"Starting server on port: {port}")
+    print(f"Database path: {DB_PATH}")
+    print(f"Admin username: {ADMIN_USERNAME}")
+    app.run(debug=False, host='0.0.0.0', port=port)
