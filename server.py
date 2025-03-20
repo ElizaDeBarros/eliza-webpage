@@ -4,18 +4,21 @@ import sqlite3
 import hashlib
 import uuid
 import os
+import tempfile
 from functools import wraps
 from werkzeug.security import generate_password_hash, check_password_hash
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 
-# Use environment variable for DB path or fallback to a file in the current directory
-DB_PATH = os.environ.get('DATABASE_URL', os.path.join(os.path.dirname(__file__), 'visitor_data.db'))
+# Use environment variable for DB path or fallback to a temporary directory
+DB_DIR = os.environ.get('DATABASE_DIR', tempfile.gettempdir())  # Use temp dir if not specified
+DB_PATH = os.environ.get('DATABASE_URL', os.path.join(DB_DIR, 'visitor_data.db'))
 
 def get_db_connection():
     """Create a database connection with proper configuration"""
     try:
+        print(f"Attempting to connect to database at: {DB_PATH}")
         conn = sqlite3.connect(DB_PATH, timeout=10)
         conn.row_factory = sqlite3.Row
         return conn
@@ -27,6 +30,7 @@ def setup_database():
     """Initialize database with error handling and directory creation"""
     try:
         # Ensure the directory exists
+        print(f"Ensuring directory exists: {os.path.dirname(DB_PATH)}")
         os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
         
         conn = get_db_connection()
