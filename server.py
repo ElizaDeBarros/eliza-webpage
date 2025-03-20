@@ -73,8 +73,8 @@ try:
 except Exception as e:
     print(f"Failed to initialize database: {e}")
 
-ADMIN_USERNAME = os.environ.get('ADMIN_USERNAME', 'admin')
-ADMIN_PASSWORD = generate_password_hash(os.environ.get('ADMIN_PASSWORD', 'password'))
+ADMIN_USERNAME = os.environ.get('usuario')
+ADMIN_PASSWORD = generate_password_hash(os.environ.get('senha', ''))
 
 def login_required(f):
     @wraps(f)
@@ -112,9 +112,7 @@ def track_visitor():
         
         # Log visit
         cursor.execute('''
-        INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer)
-        VALUES (?, ?, ?, ?, ?, ?)
-        ''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
+        INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer) VALUES (?, ?, ?, ?, ?, ?)''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
         
         # Check if visitor is new today
         cursor.execute('SELECT COUNT(*) FROM visitors WHERE visitor_id = ? AND timestamp LIKE ?', 
