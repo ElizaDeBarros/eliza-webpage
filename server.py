@@ -10,22 +10,25 @@ from werkzeug.security import generate_password_hash, check_password_hash
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', os.urandom(24))
 
-# Use environment variable for DB path or fallback to persistent location
-DB_PATH = os.environ.get('DATABASE_URL', '/data/visitor_data.db')
+# Use environment variable for DB path or fallback to a file in the current directory
+DB_PATH = os.environ.get('DATABASE_URL', os.path.join(os.path.dirname(__file__), 'visitor_data.db'))
 
 def get_db_connection():
     """Create a database connection with proper configuration"""
-    conn = sqlite3.connect(DB_PATH, timeout=10)
-    conn.row_factory = sqlite3.Row
-    return conn
+    try:
+        conn = sqlite3.connect(DB_PATH, timeout=10)
+        conn.row_factory = sqlite3.Row
+        return conn
+    except sqlite3.Error as e:
+        print(f"Error connecting to database: {e}")
+        raise
 
 def setup_database():
     """Initialize database with error handling and directory creation"""
     try:
-        # Ensure directory exists if using local file
-        if not DB_PATH.startswith('sqlite:///'):
-            os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
-            
+        # Ensure the directory exists
+        os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+        
         conn = get_db_connection()
         cursor = conn.cursor()
         
@@ -61,6 +64,7 @@ def setup_database():
         ''', (today,))
         
         conn.commit()
+        print(f"Database initialized successfully at {DB_PATH}")
     except sqlite3.Error as e:
         print(f"Database setup error: {e}")
         raise
