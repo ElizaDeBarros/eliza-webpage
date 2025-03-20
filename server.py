@@ -29,11 +29,6 @@ def setup_database():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Check SQLite version
-        # conn = sqlite3.connect(DB_PATH)
-        # print(sqlite3.sqlite_version)  # Prints the SQLite version, e.g., "3.42.0"
-        # conn.close()
-        
         # Create tables with improved structure
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visitors (
@@ -117,7 +112,9 @@ def track_visitor():
         
         # Log visit
         cursor.execute('''
-        INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer) VALUES (?, ?, ?, ?, ?, ?)''', (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
+        INSERT INTO visitors (visitor_id, ip_address, user_agent, page_url, timestamp, referrer) 
+        VALUES (?, ?, ?, ?, ?, ?)''', 
+        (visitor_id, ip_address, user_agent, page_url, current_time, referrer))
         
         # Check if visitor is new today
         cursor.execute('SELECT COUNT(*) FROM visitors WHERE visitor_id = ? AND timestamp LIKE ?', 
@@ -125,22 +122,26 @@ def track_visitor():
         existing_visits = cursor.fetchone()[0]
         is_new_unique_today = existing_visits == 1
         
-        # Get or initialize current counts
+        # Get previous totals (from yesterday or latest entry)
+        cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
+        previous = cursor.fetchone()
+        previous_total_visits = previous['total_visits'] if previous else 0
+        previous_total_unique = previous['total_unique'] if previous else 0
+        
+        # Get or initialize today's counts
         cursor.execute('SELECT * FROM visit_counts WHERE date = ?', (current_date,))
         current = cursor.fetchone()
         
         if current:
             daily_visits = current['daily_visits'] + 1
             daily_unique = current['daily_unique'] + (1 if is_new_unique_today else 0)
-            total_visits = current['total_visits'] + 1
-            total_unique = current['total_unique']
+            total_visits = previous_total_visits + 1  # Increment from previous total
         else:
             daily_visits = 1
             daily_unique = 1
-            total_visits = 1
-            total_unique = 1
+            total_visits = previous_total_visits + 1  # Start with previous total
         
-        # Update total unique count
+        # Calculate true total unique visitors
         cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
         total_unique = cursor.fetchone()[0]
         
@@ -200,30 +201,4 @@ def get_stats():
         cursor = conn.cursor()
         
         cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
-        totals = cursor.fetchone() or {'total_visits': 0, 'total_unique': 0}
-        
-        cursor.execute('SELECT date, daily_visits, daily_unique, total_visits, total_unique FROM visit_counts ORDER BY date DESC')
-        daily_stats = cursor.fetchall()
-        
-        cursor.execute('SELECT page_url, COUNT(*) as views FROM visitors GROUP BY page_url ORDER BY views DESC')
-        page_stats = cursor.fetchall()
-        
-        cursor.execute('SELECT referrer, COUNT(*) as count FROM visitors WHERE referrer != "" GROUP BY referrer ORDER BY count DESC LIMIT 10')
-        referrer_stats = cursor.fetchall()
-        
-        return jsonify({
-            'total_visits': totals['total_visits'],
-            'total_unique_visitors': totals['total_unique'],
-            'daily_stats': [dict(row) for row in daily_stats],
-            'page_stats': [{'page': row['page_url'], 'views': row['views']} for row in page_stats],
-            'referrer_stats': [{'referrer': row['referrer'], 'count': row['count']} for row in referrer_stats]
-        })
-    except sqlite3.Error as e:
-        print(f"Stats error: {e}")
-        return jsonify({'error': 'Database error'}), 500
-    finally:
-        if conn:
-            conn.close()
-
-if __name__ == "__main__":
-    app.run(debug=False, host='0.0.0.0', port=int(os.environ.get('PORT', 8080)))
+        totals =
