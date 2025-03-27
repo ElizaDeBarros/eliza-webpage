@@ -108,7 +108,6 @@
                     </tr>
                 </thead>
                 <tbody>
-                    <!-- Will be filled by JavaScript -->
                 </tbody>
             </table>
         </div>
@@ -118,4 +117,96 @@
             <table id="page-stats">
                 <thead>
                     <tr>
-                       
+                        <th>Page</th>
+                        <th>Views</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+        
+        <h2>Visitor Details</h2>
+        <div class="card">
+            <table id="visitor-details">
+                <thead>
+                    <tr>
+                        <th>Timestamp (PST)</th>
+                        <th>IP Address</th>
+                        <th>Page</th>
+                        <th>User Agent</th>
+                        <th>Referrer</th>
+                    </tr>
+                </thead>
+                <tbody>
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function updateDashboard() {
+            try {
+                // Fetch stats
+                const statsResponse = await fetch('/stats/api');
+                const stats = await statsResponse.json();
+                
+                // Fetch visitor details
+                const visitorsResponse = await fetch('/stats/visitors');
+                const visitors = await visitorsResponse.json();
+
+                // Update summary stats
+                document.getElementById('total-visits').textContent = stats.total_visits;
+                document.getElementById('unique-visitors').textContent = stats.total_unique_visitors;
+                document.getElementById('today-visits').textContent = stats.today_visits;
+
+                // Update daily stats table
+                const dailyTable = document.getElementById('daily-stats').querySelector('tbody');
+                dailyTable.innerHTML = '';
+                stats.daily_stats.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.date}</td>
+                        <td>${row.daily_visits}</td>
+                        <td>${row.daily_unique}</td>
+                    `;
+                    dailyTable.appendChild(tr);
+                });
+
+                // Update page stats table
+                const pageTable = document.getElementById('page-stats').querySelector('tbody');
+                pageTable.innerHTML = '';
+                stats.page_stats.forEach(row => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${row.page}</td>
+                        <td>${row.views}</td>
+                    `;
+                    pageTable.appendChild(tr);
+                });
+
+                // Update visitor details table
+                const visitorTable = document.getElementById('visitor-details').querySelector('tbody');
+                visitorTable.innerHTML = '';
+                visitors.visitors.forEach(visitor => {
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `
+                        <td>${visitor.timestamp}</td>
+                        <td>${visitor.ip_address}</td>
+                        <td>${visitor.page_url}</td>
+                        <td>${visitor.user_agent}</td>
+                        <td>${visitor.referrer || 'None'}</td>
+                    `;
+                    visitorTable.appendChild(tr);
+                });
+            } catch (error) {
+                console.error('Error updating dashboard:', error);
+            }
+        }
+
+        // Initial load and periodic refresh
+        updateDashboard();
+        setInterval(updateDashboard, 60000); // Refresh every minute
+    </script>
+</body>
+</html>
