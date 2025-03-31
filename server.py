@@ -37,10 +37,10 @@ def setup_database():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        # Enhanced visitors table
+        # Enhanced visitors table - fixed id-integer to id_integer
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visitors (
-            id-integer INTEGER PRIMARY KEY AUTOINCREMENT,
+            id_integer INTEGER PRIMARY KEY AUTOINCREMENT,
             visitor_id TEXT NOT NULL,
             ip_address TEXT,
             user_agent TEXT,
