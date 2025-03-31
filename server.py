@@ -40,7 +40,7 @@ def setup_database():
         # Enhanced visitors table
         cursor.execute('''
         CREATE TABLE IF NOT EXISTS visitors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id-integer INTEGER PRIMARY KEY AUTOINCREMENT,
             visitor_id TEXT NOT NULL,
             ip_address TEXT,
             user_agent TEXT,
@@ -140,11 +140,12 @@ def track_visitor():
                       (visitor_id, f'{current_date}%'))
         is_new_unique_today = cursor.fetchone()[0] == 1
         
-        # Get previous totals
-        cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
-        previous = cursor.fetchone()
-        previous_total_visits = previous['total_visits'] if previous else 0
-        previous_total_unique = previous['total_unique'] if previous else 0
+        # Get overall totals
+        cursor.execute('SELECT COUNT(*) FROM visitors')
+        total_visits = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
+        total_unique = cursor.fetchone()[0]
         
         # Update daily counts
         cursor.execute('SELECT daily_visits, daily_unique FROM visit_counts WHERE date = ?', (current_date,))
@@ -157,11 +158,7 @@ def track_visitor():
             daily_visits = 1
             daily_unique = 1
         
-        # Update totals
-        total_visits = previous_total_visits + 1
-        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
-        total_unique = cursor.fetchone()[0]
-        
+        # Update visit_counts table
         cursor.execute('''
         INSERT OR REPLACE INTO visit_counts 
         (date, daily_visits, daily_unique, total_visits, total_unique)
@@ -217,14 +214,18 @@ def get_stats():
         
         today = datetime.now(pytz.timezone(LOCAL_TIMEZONE)).strftime('%Y-%m-%d')
         
-        cursor.execute('SELECT total_visits, total_unique FROM visit_counts ORDER BY date DESC LIMIT 1')
-        totals = cursor.fetchone() or {'total_visits': 0, 'total_unique': 0}
+        # Get overall totals directly from visitors table
+        cursor.execute('SELECT COUNT(*) FROM visitors')
+        total_visits = cursor.fetchone()[0]
+        
+        cursor.execute('SELECT COUNT(DISTINCT visitor_id) FROM visitors')
+        total_unique = cursor.fetchone()[0]
         
         cursor.execute('SELECT daily_visits FROM visit_counts WHERE date = ?', (today,))
         today_visits = cursor.fetchone()
         today_visits = today_visits['daily_visits'] if today_visits else 0
         
-        cursor.execute('SELECT date, daily_visits, daily_unique, total_visits, total_unique FROM visit_counts ORDER BY date DESC')
+        cursor.execute('SELECT date, daily_visits, daily_unique FROM visit_counts ORDER BY date DESC')
         daily_stats = cursor.fetchall()
         
         cursor.execute('SELECT page_url, COUNT(*) as views FROM visitors GROUP BY page_url ORDER BY views DESC')
@@ -234,8 +235,8 @@ def get_stats():
         referrer_stats = cursor.fetchall()
         
         return jsonify({
-            'total_visits': totals['total_visits'],
-            'total_unique_visitors': totals['total_unique'],
+            'total_visits': total_visits,
+            'total_unique_visitors': total_unique,
             'today_visits': today_visits,
             'daily_stats': [dict(row) for row in daily_stats],
             'page_stats': [{'page': row['page_url'], 'views': row['views']} for row in page_stats],
@@ -256,14 +257,12 @@ def get_visitor_details():
         conn = get_db_connection()
         cursor = conn.cursor()
         
-        date_filter = request.args.get('date', datetime.now(pytz.timezone(LOCAL_TIMEZONE)).strftime('%Y-%m-%d'))
-        
+        # Removed date filter to show all visitors
         cursor.execute('''
             SELECT visitor_id, ip_address, user_agent, page_url, timestamp, referrer, hostname, forwarded_for
             FROM visitors 
-            WHERE timestamp LIKE ?
             ORDER BY timestamp DESC
-        ''', (f'{date_filter}%',))
+        ''')
         
         visitors = cursor.fetchall()
         
